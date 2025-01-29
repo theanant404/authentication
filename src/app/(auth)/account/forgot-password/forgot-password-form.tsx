@@ -23,30 +23,23 @@ import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import Link from "next/link";
-import { PasswordInput } from "@/components/ui/password-input";
-import React, { use, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios, { AxiosError } from "axios";
 import { useDebounceCallback } from "usehooks-ts";
 import { ApiResponse } from "@/types/ApiResponse";
 import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+
 const formSchema = z
   .object({
     email: z.string().email({
       message: "Please enter a valid email address.",
     }),
-    password: z.string().min(5, {
-      message: "Password must be at least 5 characters long.",
-    }),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
+    
   });
 
-export function LoginForm({
+export function ForgotPasswordForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
@@ -56,7 +49,6 @@ export function LoginForm({
   const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   const debouncedEmail = useDebounceCallback(setEmail, 2000);
-  const [password, setPassword] = React.useState("");
   const { toast } = useToast();
   const errors: string[] = [];
   const router=useRouter()
@@ -68,7 +60,7 @@ export function LoginForm({
         setEmailMessage("");
         try {
           const response = await axios.get(
-            `/api/check-email-unique?email=${email}`
+            `/api/check-email-register?email=${email}`
           );
           let message = response.data.message;
           setEmailMessage(message);
@@ -84,9 +76,15 @@ export function LoginForm({
     };
     checkEmailUnique();
   }, [email]);
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      email: "",
+    },
+  });
   useEffect(() => {
     const disabledButton = () => {
-      if(emailMessage=="Email Valid"){
+      if(emailMessage=="Email Exist"){
         setIsdisabled(false);
       }else{
         setIsdisabled(true);
@@ -94,49 +92,42 @@ export function LoginForm({
     }
     disabledButton();
   },[emailMessage])
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-      confirmPassword: "",
-    },
-  });
-
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    const password = values.password;
-    const email = values.email;
-
+    const email=values.email;
     try {
       if (emailMessage === "Email Exist") {
-        const response = await signIn("credentials", {
-          email: email,
-          password: password,
-        });
-        toast({
-          title: "Success",
-          description: "Login successfull",
-          variant: "success",
-        });
-        router.replace('/');
+        const response = await axios.post(`/api/send-email-otp-forgot-password?email=${email}`)
+        if(response.data.success){
+          toast({
+            title: "Success",
+            description:response.data.message,
+            variant:"success"
+          });
+          sessionStorage.setItem('userEmail', email);
+          router.push('/account/verification');
+        }else{
+          toast({
+            title: "failed",
+            description: response.data.message,
+            variant:'destructive'
+          });
+        }
+        
       } else {
         toast({
           title: "failed",
-          description: "Email not register go to Register page",
-          variant: "destructive",
+          description:emailMessage,
+          variant:"destructive"
         });
       }
-    } catch (error: any) {
-      console.error("Error in SIgnUp of User", error);
+    } catch (error) {
       const axiosError = error as AxiosError<ApiResponse>;
-      let errorMessage = axiosError.response?.data.message;
       toast({
-        title: "Signin failed",
-        description: errorMessage,
         variant: "destructive",
+        title: "Error",
+        description: axiosError.response?.data.message ?? "Something went wrong",
       });
-      setIsLoading(false);
+      
     }
   }
 
@@ -193,8 +184,8 @@ export function LoginForm({
               </svg>
               Login with GitHub
             </Button>
-            <Button variant="outline" className="w-full"
-            onClick={()=>{signIn('google')}}
+            <Button variant="outline" className="w-full" 
+            onClick={() => {signIn("google")}}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path
@@ -235,7 +226,7 @@ export function LoginForm({
                     )}
                     <p
                       className={`text-sm ${
-                        emailMessage === "Email Valid"
+                        emailMessage === "Email Exist"
                           ? "text-green-500"
                           : "text-red-500"
                       }`}
@@ -246,58 +237,8 @@ export function LoginForm({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <div className="flex justify-between items-center">
-                        <FormLabel htmlFor="password">Password</FormLabel>
-                        <Link
-                          href="/account/forgot-password"
-                          className="ml-auto inline-block text-sm underline"
-                        >
-                          Forgot your password?
-                        </Link>
-                      </div>
-                      <FormControl>
-                        <PasswordInput
-                          id="password"
-                          placeholder="******"
-                          autoComplete="current-password"
-                          readOnly={isLoading}
-                          {...field}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            setPassword(e.target.value);
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <PasswordInput
-                          id="password"
-                          placeholder="******"
-                          autoComplete="current-password"
-                          readOnly={isLoading}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="w-full">
-                  Login
+                <Button type="submit" className="w-full" disabled={isdisabled}>
+                  Send Otp
                 </Button>
               </div>
               <div className="text-center text-sm">
@@ -320,5 +261,3 @@ export function LoginForm({
     </div>
   );
 }
-
-

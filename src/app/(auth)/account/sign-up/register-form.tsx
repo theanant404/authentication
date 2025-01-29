@@ -28,9 +28,10 @@ import axios, { AxiosError } from "axios"
 import { ApiResponse } from "@/types/ApiResponse"
 import { useDebounceCallback } from "usehooks-ts";
 import { Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { signIn } from "next-auth/react"
 const formSchema = z.object({
-  name: z.string().regex(/^[a-zA-Z0-9_]*$/, { message: "Name can only contain letters, numbers and underscores." })
-  .min(2, {
+  name: z.string().min(2, {
     message: "Name must be at least 2 characters long.",
   }),
   username: z.string().regex(/^[a-zA-Z0-9_]*$/, { message: "Username can only contain letters, numbers and underscores." })
@@ -41,8 +42,8 @@ const formSchema = z.object({
   .email({
     message: "Please enter a valid email address.",
   }),
-  password: z.string().min(8, {
-    message: "Password must be at least 8 characters long.",
+  password: z.string().min(5, {
+    message: "Password must be at least 5 characters long.",
   }),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -54,7 +55,9 @@ export function RegisterForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+  const router=useRouter()
+    const [isSubmiting, setIsSubmiting] = useState<boolean>(false);
+    const [isdisabled,setIsdisabled]=useState<boolean>(true);
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
     const [isCheckingUsername, setIsCheckingUsername] = useState(false);
@@ -64,6 +67,7 @@ export function RegisterForm({
     const debouncedUsername = useDebounceCallback(setUsername, 500);
     const debouncedEmail = useDebounceCallback(setEmail, 2000);
     const { toast } = useToast()
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -123,15 +127,64 @@ export function RegisterForm({
     };
     checkEmailUnique();
   }, [email]);
+  useEffect(() => {
+    const disabledButton = () => {
+      if(emailMessage=="Email Valid" && usernameMessage=="Username available"){
+        setIsdisabled(false);
+      }else{
+        setIsdisabled(true);
+      }
+    }
+    disabledButton();
+  },[emailMessage,usernameMessage])
 
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log(values)
-  }
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsSubmiting(true);
+    try {
+      if (emailMessage == "Email Valid" && usernameMessage == "Username available") {
+        const response = await axios.post<ApiResponse>("/api/auth/register",values);
+        console.log(response)
+        if(response.data.success){
+          toast({
+          title: "Success",
+          description: response.data.message,
+          variant: "success",});
+          sessionStorage.setItem('userEmail', email);
+          router.push('/account/verification');
+        }else{
+          toast({
+            title: "failed",
+            description: response.data.message,
+            variant: "destructive",
+          });
+          setIsSubmiting(false);
+        }
+      }else {
+        toast({
+          title: "failed",
+          description:`1.${usernameMessage} 2.${emailMessage}`,
+          variant: "destructive",
+        });
+        setIsSubmiting(false);
+      }
+    } catch (error) {
+      console.error("Error in SIgnUp of User", error);
+      const axiosError = error as AxiosError<ApiResponse>;
+      let errorMessage = axiosError.response?.data.message;
+      toast({
+        title: "Signup failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      setIsSubmiting(false);
+    }
+  };
+  
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
+      <Card className="">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Create an account</CardTitle>
           <CardDescription>
@@ -139,7 +192,7 @@ export function RegisterForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
             <Button
               onClick={() => {
                 toast({
@@ -182,7 +235,9 @@ export function RegisterForm({
               </svg>
               Login with GitHub
             </Button>
-            <Button variant="outline" className="w-full">
+            <Button variant="outline" className="w-full"
+            onClick={() => {signIn('google')}}
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path
                   d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
@@ -194,13 +249,13 @@ export function RegisterForm({
           </div>
           <Form {...form}>
             
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8 mt-5">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-1 mt-2">
             <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
                 <span className="relative z-10 bg-background px-2 text-muted-foreground">
                   Or continue with
                 </span>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <FormField
                   control={form.control}
                   name="name"
@@ -233,7 +288,7 @@ export function RegisterForm({
                     )}
                     <p
                       className={`text-sm ${
-                        usernameMessage === "Username available"
+                        usernameMessage === `Username available`
                           ? "text-green-500"
                           : "text-red-500"
                       }`}
@@ -263,7 +318,7 @@ export function RegisterForm({
                     )}
                     <p
                       className={`text-sm ${
-                        emailMessage === "Email not register"
+                        emailMessage === "Email Valid"
                           ? "text-green-500"
                           : "text-red-500"
                       }`}
@@ -287,7 +342,7 @@ export function RegisterForm({
                           id="password"
                           placeholder="******"
                           autoComplete="current-password"
-                          readOnly={isLoading}
+                          readOnly={isSubmiting}
                           {...field}
                           
                         />
@@ -307,7 +362,7 @@ export function RegisterForm({
                           id="password"
                           placeholder="******"
                           autoComplete="current-password"
-                          readOnly={isLoading}
+                          readOnly={isSubmiting}
                           {...field}
                         />
                       </FormControl>
@@ -315,7 +370,7 @@ export function RegisterForm({
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full" disabled={isdisabled}>
                   Register
                 </Button>
               </div>
